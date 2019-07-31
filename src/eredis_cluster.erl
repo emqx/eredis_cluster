@@ -102,7 +102,7 @@ qmn2([{Pool, PoolCommands} | T1], [{Pool, Mapping} | T2], Acc, Version) ->
     Result = eredis_cluster_pool:transaction(Pool, Transaction),
     case handle_transaction_result(Result, Version, check_pipeline_result) of
         retry -> retry;
-        Res -> 
+        Res ->
             MappedRes = lists:zip(Mapping,Res),
             qmn2(T1, T2, MappedRes ++ Acc, Version)
     end;
@@ -177,18 +177,17 @@ query(PoolName, Transaction, Slot, Counter) ->
     {Pool, Version} = eredis_cluster_monitor:get_pool_by_slot(PoolName, Slot),
 
     Result = eredis_cluster_pool:transaction(Pool, Transaction),
-    case handle_transaction_result(Result, Version) of 
+    case handle_transaction_result(Result, Version) of
         retry -> query(PoolName, Transaction, Slot, Counter + 1);
         Result -> Result
     end.
 
 handle_transaction_result(Result, Version) ->
-    case Result of 
+    case Result of
        % If we detect a node went down, we should probably refresh the slot
         % mapping.
         {error, no_connection} ->
-            eredis_cluster_monitor:refresh_mapping(Version),
-            retry;
+            {error, no_connection};
 
         % If the tcp connection is closed (connection timeout), the redis worker
         % will try to reconnect, thus the connection should be recovered for
@@ -200,7 +199,7 @@ handle_transaction_result(Result, Version) ->
         % Redis explicitly say our slot mapping is incorrect, we need to refresh
         % it
         {error, <<"MOVED ", _/binary>>} ->
-            eredis_cluster_monitor:refresh_mapping(Version),
+            % eredis_cluster_monitor:refresh_mapping(Version),
             retry;
 
         Payload ->
@@ -216,7 +215,7 @@ handle_transaction_result(Result, Version, check_pipeline_result) ->
            case lists:any(Pred, Payload) of
                false -> Payload;
                true ->
-                   eredis_cluster_monitor:refresh_mapping(Version),
+                   % eredis_cluster_monitor:refresh_mapping(Version),
                    retry
            end;
        Payload -> Payload

@@ -70,6 +70,8 @@ handle_info({'EXIT', Pid, _Reason}, #state{conn = Pid} = State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
+terminate(_Reason, #state{conn=undefined}) ->
+    ok;
 terminate(_Reason, #state{conn=Conn}) ->
     ok = eredis:stop(Conn),
     ok.
