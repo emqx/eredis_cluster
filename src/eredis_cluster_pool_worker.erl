@@ -14,7 +14,7 @@
 -export([terminate/2]).
 -export([code_change/3]).
 
--record(state, {conn, host, port, database, password}).
+-record(state, {conn, host, port, database, password, options}).
 
 -define(RECONNECT_TIME, 100).
 
@@ -29,14 +29,15 @@ init(Args) ->
     Port = proplists:get_value(port, Args),
     DataBase = proplists:get_value(database, Args, 0),
     Password = proplists:get_value(password, Args, ""),
-
+    Options = proplists:get_value(options, Args, undefined),
     process_flag(trap_exit, true),
     Conn = start_connection(Hostname, Port, DataBase, Password),
     {ok, #state{conn = Conn,
                 host = Hostname,
                 port = Port,
                 database = DataBase,
-                password = Password}}.
+                password = Password,
+                options = Options}}.
 
 query(Worker, Commands) ->
     gen_server:call(Worker, {'query', Commands}).
@@ -78,7 +79,6 @@ terminate(_Reason, #state{conn=Conn}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
 
 start_connection(Hostname, Port, DataBase, Password) ->
     case eredis:start_link(Hostname, Port, DataBase, Password, no_reconnect) of
