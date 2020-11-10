@@ -118,3 +118,23 @@ eredis_cluster:qa(["FLUSHDB"]).
 %% Execute a query on the server containing the key "TEST"
 eredis_cluster:qk(["FLUSHDB"], "TEST").
 ```
+## SSL Config
+```erlang
+{eredis_cluster,
+    [
+        {init_nodes,[
+            {"127.0.0.1", 30001},
+            {"127.0.0.1", 30002}
+        ]},
+        {pool_size, 5},
+        {pool_max_overflow, 0},
+        {database, 0},
+        {password, "redis_pw"},
+        {options, [{ssl_options, {cacertfile, "tls/ca.crt"},
+                                 {certfile, "tls/redis.crt"},
+                                 {keyfile, "tls/redis.key"}},
+                   {tcp_options, []}]}
+    ]
+}
+
+```

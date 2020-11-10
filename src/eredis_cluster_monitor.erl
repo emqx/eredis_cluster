@@ -27,7 +27,8 @@
     database = 0 :: integer(),
     password = "" :: string(),
     size     = 10 :: integer(),
-    max_overflow = 0 :: integer()
+    max_overflow = 0 :: integer(),
+    options :: list()
 }).
 
 %% API.
@@ -165,8 +166,8 @@ close_connection(SlotsMap) ->
 connect_node(Node = #node{address  = Host, port = Port}, #state{database = DataBase,
                                                                 password = Password,
                                                                 size     = Size,
-                                                                max_overflow = MaxOverflow}) ->
-    case eredis_cluster_pool:create(Host, Port, DataBase, Password, Size, MaxOverflow) of
+                                                                max_overflow = MaxOverflow, options = Options}) ->
+    case eredis_cluster_pool:create(Host, Port, DataBase, Password, Size, MaxOverflow, Options) of
         {ok, Pool} ->
             Node#node{pool = Pool};
         _ ->
@@ -174,8 +175,8 @@ connect_node(Node = #node{address  = Host, port = Port}, #state{database = DataB
     end.
 
 safe_eredis_start_link(#node{address = Host, port = Port},
-                       #state{database = DataBase, password = Password}) ->
-    eredis:start_link(Host, Port, DataBase, Password, no_reconnect).
+                       #state{database = DataBase, password = Password, options = Options}) ->
+    eredis:start_link(Host, Port, DataBase, Password, no_reconnect, 5000, Options).
 
 -spec create_slots_cache([#slots_map{}]) -> [integer()].
 create_slots_cache(SlotsMaps) ->
@@ -201,7 +202,8 @@ connect_(PoolName, Opts) ->
         database = proplists:get_value(database, Opts, 0),
         password = proplists:get_value(password, Opts, ""),
         size     = proplists:get_value(pool_size, Opts, 10),
-        max_overflow = proplists:get_value(pool_max_overflow, Opts, 0)
+        max_overflow = proplists:get_value(pool_max_overflow, Opts, 0),
+        options = proplists:get_value(options, Opts, [])
     },
 
     reload_slots_map(State).
@@ -230,9 +232,46 @@ terminate(_Reason, #state{slots_maps = Slots}) ->
     [eredis_cluster_pool:stop(SlotsMap#slots_map.node#node.pool) ||
         SlotsMap <- SlotsMapList, SlotsMap#slots_map.node =/= undefined],
     ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
+% Down
+code_change({down, _V}, #state{slots = Slots,
+                               slots_maps = SlotsMaps,
+                               init_nodes = InitNodes,
+                               version = Version,
+                               pool_name = PoolName,
+                               database = DataBase,
+                               password = Password,
+                               size     = Size,
+                               max_overflow = MaxOverflow,
+                               options = Options}, _Extra) ->
+    {ok, {state, Slots,
+                 SlotsMaps,
+                 InitNodes,
+                 Version,
+                 PoolName,
+                 DataBase,
+                 Password,
+                 Size,
+                 MaxOverflow,
+                 Options}};
+% UP
+code_change(_V, #state{slots = Slots,
+                       slots_maps = SlotsMaps,
+                       init_nodes = InitNodes,
+                       version = Version,
+                       pool_name = PoolName,
+                       database = DataBase,
+                       password = Password,
+                       size     = Size,
+                       max_overflow = MaxOverflow}, _Extra) ->
+    {ok, {state, Slots,
+                 SlotsMaps,
+                 InitNodes,
+                 Version,
+                 PoolName,
+                 DataBase,
+                 Password,
+                 Size,
+                 MaxOverflow,
+                 []}}.
 name(Name) ->
     list_to_atom("monitor_" ++ atom_to_list(Name)).
