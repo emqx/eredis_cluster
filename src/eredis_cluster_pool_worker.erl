@@ -85,10 +85,10 @@ code_change(_, State, _Extra) ->
     {ok, State}.
 
 start_connection(Hostname, Port, DataBase, Password, Options) ->
-    case eredis:start_link(Hostname, Port, DataBase, Password, no_reconnect) of
+    case eredis:start_link(Hostname, Port, DataBase, Password, no_reconnect, 5000, Options) of
         {ok,Connection} ->
             Connection;
         _ ->
-            erlang:send_after(?RECONNECT_TIME, self(), reconnect, 5000, Options),
+            erlang:send_after(?RECONNECT_TIME, self(), reconnect),
             undefined
     end.
