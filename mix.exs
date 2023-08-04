@@ -20,7 +20,7 @@ defmodule EredisCluster.Mixfile do
   defp deps do
     [
       {:ecpool, git: "https://github.com/emqx/ecpool", tag: "0.5.3"},
-      {:eredis, "~> 1.2.0"},
+      {:eredis, "~> 1.2.11"},
       {:ex_doc, "~> 0.19.1"}
     ]
   end

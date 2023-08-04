@@ -28,6 +28,7 @@
     version :: integer(),
     pool_name :: atom(),
     database = 0 :: integer(),
+    username = undefined :: string() | undefined,
     password = "" :: string(),
     pool_options = [] :: list(tuple())
 }).
@@ -180,6 +181,7 @@ close_connection(SlotsMap) ->
     end.
 
 connect_node(Node = #node{address  = Host, port = Port}, #state{database       = DataBase,
+                                                                username       = Username,
                                                                 password       = Password,
                                                                 pool_options   = PoolOptions
                                                                }) ->
@@ -187,7 +189,8 @@ connect_node(Node = #node{address  = Host, port = Port}, #state{database       =
         undefined -> [];
         Options0 -> Options0
     end,
-    case eredis_cluster_pool:create(Host, Port, DataBase, Password, PoolOptions, Options) of
+    Credentials = eredis:make_credentials(Username, Password),
+    case eredis_cluster_pool:create(Host, Port, DataBase, Credentials, PoolOptions, Options) of
         {ok, Pool} ->
             Node#node{pool = Pool};
         _ ->
@@ -195,12 +198,13 @@ connect_node(Node = #node{address  = Host, port = Port}, #state{database       =
     end.
 
 safe_eredis_start_link(#node{address = Host, port = Port},
-                       #state{database = DataBase, password = Password}) ->
+                       #state{database = DataBase, username = Username, password = Password}) ->
     Options = case erlang:get(options) of
         undefined -> [];
         Options0 -> Options0
     end,
-    eredis:start_link(Host, Port, DataBase, Password, no_reconnect, 5000, Options).
+    Credentials = eredis:make_credentials(Username, Password),
+    eredis:start_link(Host, Port, DataBase, Credentials, no_reconnect, 5000, Options).
 
 -spec create_slots_cache([#slots_map{}]) -> [integer()].
 create_slots_cache(SlotsMaps) ->
@@ -225,6 +229,7 @@ connect_(PoolName, Opts) ->
         version = 0,
         pool_name = PoolName,
         database = proplists:get_value(database, Opts, 0),
+        username = proplists:get_value(username, Opts, undefined),
         password = proplists:get_value(password, Opts, ""),
         pool_options = [
                         {pool_size, proplists:get_value(pool_size, Opts, 10)},
