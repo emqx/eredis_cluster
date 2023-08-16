@@ -16,14 +16,14 @@
 
 -type pool_name() :: binary().
 
-create(Host, Port, DataBase, Password, PoolOptions) ->
-    create(Host, Port, DataBase, Password, PoolOptions, []).
-create(Host, Port, DataBase, Password, PoolOptions0, Options) ->
+create(Host, Port, DataBase, Credentials, PoolOptions) ->
+    create(Host, Port, DataBase, Credentials, PoolOptions, []).
+create(Host, Port, DataBase, Credentials, PoolOptions0, Options) ->
     PoolName = get_name(Host, Port, Options),
     WorkerArgs = [{host, Host},
                   {port, Port},
                   {database, DataBase},
-                  {password, Password}],
+                  {credentials, Credentials}],
     PoolOptions1 = case Options of
                       [] -> PoolOptions0 ++ WorkerArgs;
                       _ ->  PoolOptions0 ++ WorkerArgs ++ [{options, Options}]

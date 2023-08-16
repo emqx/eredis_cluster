@@ -19,7 +19,7 @@
 -export([format_status/1]).
 -export([format_status/2]).
 
--record(state, {conn, host, port, database, password}).
+-record(state, {conn, host, port, database, credentials}).
 
 -define(RECONNECT_TIME, 2000).
 
@@ -36,7 +36,7 @@ init(Args) ->
     Hostname = proplists:get_value(host, Args),
     Port = proplists:get_value(port, Args),
     DataBase = proplists:get_value(database, Args, 0),
-    Password = proplists:get_value(password, Args, ""),
+    Credentials = proplists:get_value(credentials, Args, eredis:make_empty_credentials()),
     Options = proplists:get_value(options, Args, []),
     erlang:put(options, Options),
     process_flag(trap_exit, true),
@@ -45,7 +45,7 @@ init(Args) ->
                 host = Hostname,
                 port = Port,
                 database = DataBase,
-                password = Password}}.
+                credentials = Credentials}}.
 
 query(Worker, Commands) ->
     gen_server:call(Worker, {'query', Commands}).
@@ -69,12 +69,12 @@ handle_info(reconnect, #state{conn = undefined,
                               host = Hostname,
                               port = Port,
                               database = DataBase,
-                              password = Password} = State) ->
+                              credentials = Credentials} = State) ->
     Options = case erlang:get(options) of
         undefined -> [];
         Options0 -> Options0
     end,
-    Conn = start_connection(Hostname, Port, DataBase, Password, Options),
+    Conn = start_connection(Hostname, Port, DataBase, Credentials, Options),
     {noreply, State#state{conn = Conn}};
 
 handle_info(reconnect, State) ->
@@ -106,11 +106,12 @@ format_status(Status = #{state := State}) ->
 format_status(_Opt, [_PDict, State]) ->
     [{data, [{"State", censor_state(State)}]}].
 
-censor_state(#state{} = State) ->
-    State#state{password = "******"};
+censor_state(#state{credentials = Credentials0} = State) ->
+    Credentials = eredis:redact_credentials(Credentials0),
+    State#state{credentials = Credentials};
 censor_state(State) ->
     State.
-    
+
 safe_query(Func, Conn, Commands) ->
     try eredis:Func(Conn, Commands)
     catch
@@ -118,10 +119,10 @@ safe_query(Func, Conn, Commands) ->
             {error, timeout}
     end.
 
-start_connection(Hostname, Port, DataBase, Password, Options) ->
+start_connection(Hostname, Port, DataBase, Credentials, Options) ->
     %% NOTE: `eredis:start_link/7` may raise exceptions if connect to redis failed,
     %%  so we will receive an 'EXIT' message.
-    case eredis:start_link(Hostname, Port, DataBase, Password, no_reconnect, 5000, Options) of
+    case eredis:start_link(Hostname, Port, DataBase, Credentials, no_reconnect, 5000, Options) of
         {ok,Connection} ->
             Connection;
         _ ->
