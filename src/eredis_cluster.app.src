@@ -7,6 +7,7 @@
     {applications, [
         kernel,
         stdlib,
+        eredis,
         ecpool
     ]},
     {mod, {eredis_cluster, []}},
