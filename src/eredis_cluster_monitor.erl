@@ -4,7 +4,7 @@
 %% API.
 -export([start_link/2]).
 -export([refresh_mapping/2]).
--export([get_state/1, get_state_version/1]).
+-export([get_state/1, cache_states/0, get_state_version/1]).
 -export([get_pool_by_slot/2]).
 -export([get_all_pools/1]).
 
@@ -32,6 +32,8 @@
     max_overflow = 0 :: integer()
 }).
 
+-define(PK, ?MODULE).
+
 %% API.
 start_link(Name, Opts) ->
     gen_server:start_link({local, name(Name)}, ?MODULE, [Name, Opts], []).
@@ -42,15 +44,38 @@ refresh_mapping(Name, Version) ->
         Pid -> gen_server:call(Pid, {reload_slots_map, Version})
     end.
 
+get_config() ->
+    persistent_term:get(?PK, #{}).
+
+get_config(Key, Default) ->
+    maps:get(Key, get_config(), Default).
+
+set_config(Key, Value) ->
+    persistent_term:put(?PK, maps:put(Key, Value, get_config())).
+
 %% =============================================================================
 %% @doc Given a slot return the link (Redis instance) to the mapped
 %% node.
 %% @end
 %% =============================================================================
+set_state(Name, State) ->
+    set_config(state, maps:put(Name, State, get_config(state, #{}))).
+
 get_state(Name) ->
-    case ets:lookup(?MODULE, Name) of
-        undefined -> #state{};
-        [{Name, State}] -> State
+    case maps:find(Name, get_config(state, #{})) of
+        {ok, State} -> State;
+        error -> throw({?MODULE, {state_not_initialized, Name}})
+    end.
+
+%% The older version of get_state/1 stored the state in ets, we read and cache
+%% it in the persistent term
+cache_states() ->
+    case ets:info(?MODULE) of
+        undefined -> ok;
+        _ ->
+            lists:foreach(fun({Name, State}) ->
+                    set_state(Name, State)
+                end, ets:tab2list(?MODULE))
     end.
 
 get_state_version(State) ->
@@ -78,8 +103,7 @@ get_pool_by_slot(Slot, State) when is_integer(Slot) ->
     end;
 
 get_pool_by_slot(Name, Slot) ->
-    State = get_state(Name),
-    get_pool_by_slot(Slot, State).
+    get_pool_by_slot(Slot, get_state(Name)).
 
 -spec reload_slots_map(State::#state{}) -> NewState::#state{}.
 reload_slots_map(State = #state{pool_name = PoolName}) ->
@@ -99,7 +123,7 @@ reload_slots_map(State = #state{pool_name = PoolName}) ->
                 version = State#state.version + 1
             }
     end,
-    true = ets:insert(?MODULE, [{PoolName, NewState}]),
+    set_state(PoolName, NewState),
     NewState.
 
 get_cluster_slots([], State, FailAcc) ->
