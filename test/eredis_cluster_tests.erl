@@ -206,7 +206,7 @@ basic_test_cases(AuthMethod) ->
         { "eredis_cluster_monitor:get_state" ++ AuthMethodSuffix,
         fun () ->
             ?assert(is_tuple(eredis_cluster_monitor:get_state(?POOL))),
-            ?assert(is_tuple(eredis_cluster_monitor:get_state(invalid_pool)))
+            ?assertThrow({_, {state_not_initialized, invalid_pool}}, eredis_cluster_monitor:get_state(invalid_pool))
         end
         },
 
@@ -219,7 +219,7 @@ basic_test_cases(AuthMethod) ->
         { "ping_all" ++ AuthMethodSuffix,
         fun () ->
             ?assert(eredis_cluster:ping_all(?POOL)),
-            ?assertNot(eredis_cluster:ping_all(invalid_pool))
+            ?assertThrow({_, {state_not_initialized, invalid_pool}}, eredis_cluster:ping_all(invalid_pool))
         end
         }
   ].
