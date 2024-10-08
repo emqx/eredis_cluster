@@ -120,11 +120,12 @@ safe_query(Func, Conn, Commands) ->
     end.
 
 start_connection(Hostname, Port, DataBase, Credentials, Options) ->
-    %% NOTE: `eredis:start_link/7` may raise exceptions if connect to redis failed,
-    %%  so we will receive an 'EXIT' message.
     case eredis:start_link(Hostname, Port, DataBase, Credentials, no_reconnect, 5000, Options) of
         {ok,Connection} ->
             Connection;
         _ ->
+            %% NOTE: `eredis:start_link/7` may raise 'EXIT' if connect to redis failed, but we
+            %%  still need to trigger a reconnect here in case no 'EXIT' message is received.
+            erlang:send_after(?RECONNECT_TIME, self(), reconnect),
             undefined
     end.
