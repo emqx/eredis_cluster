@@ -17,7 +17,10 @@
 -export([terminate/2]).
 -export([code_change/3]).
 -export([format_status/1]).
+
+-if(?OTP_RELEASE < 25).
 -export([format_status/2]).
+-endif.
 
 -record(state, {conn, host, port, database, credentials}).
 
@@ -103,8 +106,10 @@ format_status(Status = #{state := State}) ->
 %% TODO
 %% This is deprecated since OTP-25 in favor of `format_status/1`. Remove once
 %% OTP-25 becomes minimum supported OTP version.
+-if(?OTP_RELEASE < 25).
 format_status(_Opt, [_PDict, State]) ->
     [{data, [{"State", censor_state(State)}]}].
+-endif.
 
 censor_state(#state{credentials = Credentials0} = State) ->
     Credentials = eredis:redact_credentials(Credentials0),
