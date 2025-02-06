@@ -41,4 +41,4 @@ has_child(Name) ->
     end.
 
 name(Name) ->
-    list_to_atom(atom_to_list(Name) ++ "_eredis_cluster_monitor").
+    {eredis_cluster_monitor, Name}.

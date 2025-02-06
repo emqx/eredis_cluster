@@ -21,6 +21,7 @@
 -export([update_hash_field/4]).
 -export([optimistic_locking_transaction/4]).
 -export([eval/5]).
+-export([ping_all/1]).
 
 start_pool(PoolName, Opts) ->
     eredis_cluster_sup:start_child(PoolName, [PoolName, Opts]).
@@ -123,6 +124,20 @@ query(PoolName, Transaction, Slot, Counter) ->
         retry -> query(PoolName, Transaction, Slot, Counter + 1);
         Result -> Result
     end.
+
+ping_all(Pool) ->
+    Slots = eredis_cluster_monitor:get_slot_samples(Pool),
+    Transaction = fun(Worker) -> qw(Worker, [<<"PING">>]) end,
+    Pongs = lists:map(
+              fun(Slot) -> query(Pool, Transaction, Slot, 0) end,
+              Slots),
+
+    length(Pongs) > 0 andalso
+    lists:all(
+      fun({ok, <<"PONG">>}) -> true;
+         (_) -> false
+      end,
+      Pongs).
 
 handle_transaction_result(PoolName, Result, Version) ->
     case Result of

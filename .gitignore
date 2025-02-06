@@ -14,3 +14,4 @@ doc/
 mix.lock
 /.idea/
 .DS_Store
+rebar.lock

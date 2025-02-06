@@ -2,10 +2,11 @@
 -behaviour(supervisor).
 
 %% API.
+-export([create/5]).
 -export([create/6]).
--export([create/7]).
 -export([stop/1]).
 -export([transaction/2]).
+-export([do_transaction/2]).
 
 %% Supervisor
 -export([start_link/0]).
@@ -13,45 +14,45 @@
 
 -include("eredis_cluster.hrl").
 
-create(Host, Port, DataBase, Password, Size, MaxOverflow) ->
-    create(Host, Port, DataBase, Password, Size, MaxOverflow, []).
-create(Host, Port, DataBase, Password, Size, MaxOverflow, Options) ->
+-type pool_name() :: binary().
+
+create(Host, Port, DataBase, Credentials, PoolOptions) ->
+    create(Host, Port, DataBase, Credentials, PoolOptions, []).
+create(Host, Port, DataBase, Credentials, PoolOptions0, Options) ->
     PoolName = get_name(Host, Port, Options),
-    case whereis(PoolName) of
-        undefined ->
-            WorkerArgs = [{host, Host},
-                          {port, Port},
-                          {database, DataBase},
-                          {password, Password}],
-            PoolArgs = [{name, {local, PoolName}},
-                        {worker_module, eredis_cluster_pool_worker},
-                        {size, Size},
-                        {max_overflow, MaxOverflow}],
-            ChildSpec = poolboy:child_spec(PoolName, PoolArgs,
-                                                case Options of
-                                                    [] -> WorkerArgs;
-                                                    _ -> WorkerArgs ++ [{options, Options}]
-                                                end),
-            {Result, _} = supervisor:start_child(?MODULE,ChildSpec),
-            {Result, PoolName};
-        _ ->
-            {ok, PoolName}
+    WorkerArgs = [{host, Host},
+                  {port, Port},
+                  {database, DataBase},
+                  {credentials, Credentials}],
+    PoolOptions1 = case Options of
+                      [] -> PoolOptions0 ++ WorkerArgs;
+                      _ ->  PoolOptions0 ++ WorkerArgs ++ [{options, Options}]
+                  end,
+    case ecpool:start_sup_pool(PoolName, eredis_cluster_pool_worker, PoolOptions1) of
+        {ok, _} ->
+            {ok, PoolName};
+        {error, {already_started, _Pid}} ->
+            {ok, PoolName};
+        {error, _} = Error ->
+            Error
     end.
 
--spec transaction(PoolName::atom(), fun((Worker::pid()) -> redis_result())) ->
+-spec transaction(PoolName::pool_name(), fun((Worker::pid()) -> redis_result())) ->
     redis_result().
 transaction(PoolName, Transaction) ->
     try
-        poolboy:transaction(PoolName, Transaction)
+        ecpool:pick_and_do(PoolName, {?MODULE, do_transaction, [Transaction]}, handover)
     catch
         exit:_ ->
             {error, no_connection}
     end.
 
--spec stop(PoolName::atom()) -> ok.
+do_transaction(Pid, Transaction) ->
+    Transaction(Pid).
+
+-spec stop(PoolName::pool_name()) -> ok.
 stop(PoolName) ->
-    supervisor:terminate_child(?MODULE,PoolName),
-    supervisor:delete_child(?MODULE,PoolName),
+    _ = ecpool:stop_sup_pool(PoolName),
     ok.
 
 -spec start_link() -> {ok, pid()}.
@@ -65,7 +66,7 @@ init([]) ->
 
 get_name(Host, Port, Options) ->
     Prefix = proplists:get_value(worker_name_prefix, Options, rand_int()),
-    list_to_atom(str(Prefix) ++ "_" ++ Host ++ "#" ++ str(Port)).
+    list_to_binary(str(Prefix) ++ "_" ++ Host ++ "#" ++ str(Port)).
 
 str(S) when is_integer(S) -> integer_to_list(S);
 str(S) when is_binary(S) -> binary_to_list(S);

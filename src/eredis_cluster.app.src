@@ -6,7 +6,9 @@
     {registered, []},
     {applications, [
         kernel,
-        stdlib
+        stdlib,
+        eredis,
+        ecpool
     ]},
     {mod, {eredis_cluster, []}},
     {env, []}

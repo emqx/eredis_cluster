@@ -1,10 +1,10 @@
 # eredis_cluster
-[![Travis](https://img.shields.io/travis/adrienmo/eredis_cluster.svg?branch=master&style=flat-square)](https://travis-ci.org/adrienmo/eredis_cluster)
-[![Hex.pm](https://img.shields.io/hexpm/v/eredis_cluster.svg?style=flat-square)](https://hex.pm/packages/eredis_cluster)
+
+[![Build status](https://github.com/emqx/eredis_cluster/actions/workflows/test.yaml/badge.svg)](https://github.com/emqx/eredis_cluster/actions/workflows/test.yaml)
 
 ## Description
 
-eredis_cluster is a wrapper for eredis to support cluster mode of redis 3.0.0+
+`eredis_cluster` is a wrapper for eredis to support cluster mode of redis 3.0.0+
 
 ## TODO
 
@@ -104,7 +104,7 @@ eredis_cluster:update_hash_field("abc", "efg", Fun).
 
 %% Eval script, both script and hash are necessary to execute the command,
 %% the script hash should be precomputed at compile time otherwise, it will
-%% execute it at each request. Could be solved by using a macro though.  
+%% execute it at each request. Could be solved by using a macro though.
 Script = "return redis.call('set', KEYS[1], ARGV[1]);",
 ScriptHash = "4bf5e0d8612687699341ea7db19218e83f77b7cf",
 eredis_cluster:eval(Script, ScriptHash, ["abc"], ["123"]).

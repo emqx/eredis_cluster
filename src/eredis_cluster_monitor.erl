@@ -4,9 +4,10 @@
 %% API.
 -export([start_link/2]).
 -export([refresh_mapping/2]).
--export([get_state/1, cache_states/0, get_state_version/1]).
+-export([get_state/1, get_state_version/1]).
 -export([get_pool_by_slot/2]).
 -export([get_all_pools/1]).
+-export([get_slot_samples/1]).
 
 %% gen_server.
 -export([init/1]).
@@ -16,7 +17,10 @@
 -export([terminate/2]).
 -export([code_change/3]).
 -export([format_status/1]).
+
+-if(?OTP_RELEASE < 25).
 -export([format_status/2]).
+-endif.
 
 %% Type definition.
 -include("eredis_cluster.hrl").
@@ -27,19 +31,19 @@
     version :: integer(),
     pool_name :: atom(),
     database = 0 :: integer(),
+    username = undefined :: string() | undefined,
     password = "" :: string(),
-    size     = 10 :: integer(),
-    max_overflow = 0 :: integer()
+    pool_options = [] :: list(tuple())
 }).
 
 -define(PK, ?MODULE).
 
 %% API.
 start_link(Name, Opts) ->
-    gen_server:start_link({local, name(Name)}, ?MODULE, [Name, Opts], []).
+    gen_server:start_link(?MODULE, [Name, Opts], []).
 
 refresh_mapping(Name, Version) ->
-    case whereis(name(Name)) of
+    case gproc:where({n, l, name(Name)}) of
         undefined -> {error, not_find_process};
         Pid -> gen_server:call(Pid, {reload_slots_map, Version})
     end.
@@ -65,17 +69,6 @@ get_state(Name) ->
     case maps:find(Name, get_config(state, #{})) of
         {ok, State} -> State;
         error -> throw({?MODULE, {state_not_initialized, Name}})
-    end.
-
-%% The older version of get_state/1 stored the state in ets, we read and cache
-%% it in the persistent term
-cache_states() ->
-    case ets:info(?MODULE) of
-        undefined -> ok;
-        _ ->
-            lists:foreach(fun({Name, State}) ->
-                    set_state(Name, State)
-                end, ets:tab2list(?MODULE))
     end.
 
 get_state_version(State) ->
@@ -104,6 +97,14 @@ get_pool_by_slot(Slot, State) when is_integer(Slot) ->
 
 get_pool_by_slot(Name, Slot) ->
     get_pool_by_slot(Slot, get_state(Name)).
+
+get_slot_samples(Name) ->
+    #state{slots_maps = SlotsMaps0} = get_state(Name),
+    SlotsMaps1 = case SlotsMaps0 of
+                     undefined -> [];
+                     T when is_tuple(T) -> tuple_to_list(T)
+                 end,
+    lists:map(fun(#slots_map{start_slot = Slot}) -> Slot end, SlotsMaps1).
 
 -spec reload_slots_map(State::#state{}) -> NewState::#state{}.
 reload_slots_map(State = #state{pool_name = PoolName}) ->
@@ -182,7 +183,6 @@ parse_cluster_slots([], _Index, Acc) ->
     lists:reverse(Acc).
 
 
-
 -spec close_connection(#slots_map{}) -> ok.
 close_connection(SlotsMap) ->
     Node = SlotsMap#slots_map.node,
@@ -199,15 +199,17 @@ close_connection(SlotsMap) ->
             ok
     end.
 
-connect_node(Node = #node{address  = Host, port = Port}, #state{database = DataBase,
-                                                                password = Password,
-                                                                size     = Size,
-                                                                max_overflow = MaxOverflow}) ->
+connect_node(Node = #node{address  = Host, port = Port}, #state{database       = DataBase,
+                                                                username       = Username,
+                                                                password       = Password,
+                                                                pool_options   = PoolOptions
+                                                               }) ->
     Options = case erlang:get(options) of
         undefined -> [];
         Options0 -> Options0
     end,
-    case eredis_cluster_pool:create(Host, Port, DataBase, Password, Size, MaxOverflow, Options) of
+    Credentials = eredis:make_credentials(Username, Password),
+    case eredis_cluster_pool:create(Host, Port, DataBase, Credentials, PoolOptions, Options) of
         {ok, Pool} ->
             Node#node{pool = Pool};
         _ ->
@@ -215,12 +217,13 @@ connect_node(Node = #node{address  = Host, port = Port}, #state{database = DataB
     end.
 
 safe_eredis_start_link(#node{address = Host, port = Port},
-                       #state{database = DataBase, password = Password}) ->
+                       #state{database = DataBase, username = Username, password = Password}) ->
     Options = case erlang:get(options) of
         undefined -> [];
         Options0 -> Options0
     end,
-    eredis:start_link(Host, Port, DataBase, Password, no_reconnect, 5000, Options).
+    Credentials = eredis:make_credentials(Username, Password),
+    eredis:start_link(Host, Port, DataBase, Credentials, no_reconnect, 5000, Options).
 
 -spec create_slots_cache([#slots_map{}]) -> [integer()].
 create_slots_cache(SlotsMaps) ->
@@ -245,9 +248,13 @@ connect_(PoolName, Opts) ->
         version = 0,
         pool_name = PoolName,
         database = proplists:get_value(database, Opts, 0),
+        username = proplists:get_value(username, Opts, undefined),
         password = proplists:get_value(password, Opts, ""),
-        size     = proplists:get_value(pool_size, Opts, 10),
-        max_overflow = proplists:get_value(pool_max_overflow, Opts, 0)
+        pool_options = [
+                        {pool_size, proplists:get_value(pool_size, Opts, 10)},
+                        {auto_reconnect, proplists:get_value(auto_reconnect, Opts, false)},
+                        {pool_type, proplists:get_value(pool_type, Opts, random)}
+                       ]
     },
     reload_slots_map(State).
 
@@ -259,6 +266,7 @@ init([PoolName, Opts]) ->
         #state{slots = undefined} ->
             {stop, <<"ERR unable to connect to any nodes">>};
         State ->
+            true = gproc:reg({n, l, name(PoolName)}, ignored),
             {ok, State}
     end.
 
@@ -290,8 +298,10 @@ format_status(Status = #{state := State}) ->
 %% TODO
 %% This is deprecated since OTP-25 in favor of `format_status/1`. Remove once
 %% OTP-25 becomes minimum supported OTP version.
+-if(?OTP_RELEASE < 25).
 format_status(_Opt, [_PDict, State]) ->
     [{data, [{"State", censor_state(State)}]}].
+-endif.
 
 censor_state(#state{} = State) ->
     State#state{password = "******"};
@@ -299,4 +309,4 @@ censor_state(State) ->
     State.
 
 name(Name) ->
-    list_to_atom("monitor_" ++ atom_to_list(Name)).
+    {eredis_cluster_monitor, Name}.

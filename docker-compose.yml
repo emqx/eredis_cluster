@@ -3,31 +3,49 @@ version: '3.9'
 services:
   redis-node-0: &redis-node
     image: docker.io/bitnami/redis-cluster:${REDIS_TAG}
+    volumes:
+      - ./test/config/users.acl:/usr/local/etc/redis/users.acl
+      - ./test/config/overrides.conf:/opt/bitnami/redis/mounted-etc/overrides.conf
     ports:
       - "30001:${REDIS_PORT_NUMBER}"
     environment:
       - 'REDIS_PASSWORD=${REDIS_PASSWORD}'
       - 'REDIS_NODES=redis-node-0 redis-node-1 redis-node-2 redis-node-3 redis-node-4 redis-node-5'
+    networks:
+      vpcbr:
+        ipv4_address: 10.5.0.11
 
   redis-node-1:
     <<: *redis-node
     ports:
       - "30002:${REDIS_PORT_NUMBER}"
+    networks:
+      vpcbr:
+        ipv4_address: 10.5.0.12
 
   redis-node-2:
     <<: *redis-node
     ports:
       - "30003:${REDIS_PORT_NUMBER}"
+    networks:
+      vpcbr:
+        ipv4_address: 10.5.0.13
 
   redis-node-3:
     <<: *redis-node
     ports:
       - "30004:${REDIS_PORT_NUMBER}"
+    networks:
+      vpcbr:
+        ipv4_address: 10.5.0.14
 
   redis-node-4:
     <<: *redis-node
     ports:
       - "30005:${REDIS_PORT_NUMBER}"
+    networks:
+      vpcbr:
+        ipv4_address: 10.5.0.15
 
   redis-node-5:
     image: docker.io/bitnami/redis-cluster:${REDIS_TAG}
@@ -43,11 +61,17 @@ services:
       - 'REDIS_CLUSTER_REPLICAS=1'
       - 'REDIS_NODES=redis-node-0 redis-node-1 redis-node-2 redis-node-3 redis-node-4 redis-node-5'
       - 'REDIS_CLUSTER_CREATOR=yes'
+    volumes:
+      - ./test/config/users.acl:/usr/local/etc/redis/users.acl
+      - ./test/config/overrides.conf:/opt/bitnami/redis/mounted-etc/overrides.conf
     ports:
       - "30006:${REDIS_PORT_NUMBER}"
+    networks:
+      vpcbr:
+        ipv4_address: 10.5.0.16
     healthcheck:
       test: |
-        # Convert `cluster info` output into shell variable assignments 
+        # Convert `cluster info` output into shell variable assignments
         eval "$(
           redis-cli -a "${REDIS_PASSWORD}" --no-auth-warning cluster info | \
             grep "^cluster" | \
@@ -58,3 +82,11 @@ services:
         [ "$$cluster_known_nodes" -eq 6 ] || { echo "known nodes = $$cluster_known_nodes"; exit 3; }
       interval: 5s
       retries: 3
+
+networks:
+  vpcbr:
+    driver: bridge
+    ipam:
+      config:
+      - subnet: 10.5.0.0/16
+        gateway: 10.5.0.1
