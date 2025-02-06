@@ -4,7 +4,7 @@
 %% API.
 -export([start_link/2]).
 -export([refresh_mapping/2]).
--export([get_state/1, get_state_version/1]).
+-export([get_state/1, cache_states/0, get_state_version/1]).
 -export([get_pool_by_slot/2]).
 -export([get_all_pools/1]).
 -export([get_slot_samples/1]).
@@ -69,6 +69,17 @@ get_state(Name) ->
     case maps:find(Name, get_config(state, #{})) of
         {ok, State} -> State;
         error -> throw({?MODULE, {state_not_initialized, Name}})
+    end.
+
+%% The older version of get_state/1 stored the state in ets, we read and cache
+%% it in the persistent term
+cache_states() ->
+    case ets:info(?MODULE) of
+        undefined -> ok;
+        _ ->
+            lists:foreach(fun({Name, State}) ->
+                    set_state(Name, State)
+                end, ets:tab2list(?MODULE))
     end.
 
 get_state_version(State) ->
