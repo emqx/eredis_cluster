@@ -11,16 +11,25 @@
 -export([log/2]).
 
 -define(POOL, ?MODULE).
+-define(SERVERS, "127.0.0.1:30001,127.0.0.1:30002").
 -define(POOL_OPTS, [
-    {servers, [
-        {"127.0.0.1", 30001},
-        {"127.0.0.1", 30002}
-    ]},
+    {servers, format_redis_servers(os:getenv("REDIS_NODE_LIST", ?SERVERS))},
     {pool_size, 5},
     {pool_max_overflow, 0},
     {database, 0},
     {password, "passw0rd"}
 ]).
+-record(state, {
+    init_nodes,
+    slots,
+    slots_maps,
+    version,
+    pool_name,
+    database,
+    password,
+    size,
+    max_overflow
+}).
 
 setup() ->
     {ok, Apps} = application:ensure_all_started(eredis_cluster),
@@ -170,6 +179,27 @@ basic_test_() ->
     }
 }.
 
+rainy_day_test_() ->
+    {setup, fun setup/0, fun cleanup/1,
+        [
+            {"get and set after redis is recovered from node failure",
+                fun() ->
+                    meck:new(eredis, [passthrough]),
+                    ?assertEqual({ok, <<"OK">>}, eredis_cluster:q(?POOL, ["SET", "key", "value"])),
+                    ?assertEqual({ok, <<"value">>}, eredis_cluster:q(?POOL, ["GET","key"])),
+                    #state{version = Vsn1} = eredis_cluster_monitor:get_state(?POOL),
+                    meck:expect(eredis, q, fun(_, _) -> {error, no_connection} end),
+                    meck:expect(eredis, q, fun(_, _, _) -> {error, no_connection} end),
+                    ?assertEqual({error, no_connection}, eredis_cluster:q(?POOL, ["GET","key"])),
+                    meck:unload(),
+                    ?assertEqual({ok, <<"value">>}, eredis_cluster:q(?POOL, ["GET","key"])),
+                    #state{version = Vsn2, init_nodes = InitNodes} = eredis_cluster_monitor:get_state(?POOL),
+                    ?assertEqual(Vsn1, Vsn2),
+                    ?assert(length(InitNodes) > 0)
+                end}
+        ]
+    }.
+
 censor_test_() ->
     {setup, fun setup/0, fun cleanup/1, fun({_Apps, MonPid}) -> [
         {"no password in worker state", fun () ->
@@ -237,3 +267,12 @@ log(#{msg := Msg}, #{relay_to := Pid}) ->
     Pid ! {log, Msg};
 log(_, _) ->
     ok.
+
+format_redis_servers(Servers) ->
+    [format_server(Server) || Server <- string:tokens(Servers, ",")].
+
+format_server(Servers) ->
+    case string:tokens(Servers, ":") of
+        [Domain] -> {Domain, 6379};
+        [Domain, Port] -> {Domain, list_to_integer(Port)}
+    end.
