@@ -1,5 +1,5 @@
 %% -*- mode: erlang -*-
-{"0.7.5",
+{"0.7.7",
   [
     {"0.5.11", [
       {load_module, eredis_cluster_sup, brutal_purge, soft_purge, []},
@@ -47,7 +47,7 @@
       {load_module, eredis_cluster, brutal_purge, soft_purge, []},
       {load_module, eredis_cluster_pool_worker, brutal_purge, soft_purge, []}
     ]},
-    {"0.7.5", [
+    {<<"0\\.7\\.[5-6]">>, [
       {load_module, eredis_cluster_monitor, brutal_purge, soft_purge, []},
       {apply,{eredis_cluster_monitor,cache_states,[]}}
     ]},
@@ -95,7 +95,7 @@
       {load_module, eredis_cluster, brutal_purge, soft_purge, []},
       {load_module, eredis_cluster_pool_worker, brutal_purge, soft_purge, []}
     ]},
-    {"0.7.5", [
+    {<<"0\\.7\\.[5-6]">>, [
       {load_module, eredis_cluster_monitor, brutal_purge, soft_purge, []}
     ]},
     {<<".*">>, [
