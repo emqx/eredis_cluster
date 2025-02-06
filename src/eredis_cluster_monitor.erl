@@ -119,10 +119,12 @@ get_slot_samples(Name) ->
 
 -spec reload_slots_map(State::#state{}) -> NewState::#state{}.
 reload_slots_map(State = #state{pool_name = PoolName}) ->
-    NewState = case get_cluster_slots(State#state.init_nodes, State, 0) of
-        {error, _Reason} ->
+    NewState = case get_cluster_slots(State#state.init_nodes, State, []) of
+        {error, Reason} ->
+            logger:error("Failed to get cluster slots: ~p", [Reason]),
             State;
-        [] -> State#state{version = State#state.version + 1};
+        [] ->
+            State#state{version = State#state.version + 1};
         ClusterSlots ->
             [close_connection(SlotsMap)
                 || SlotsMap <- tuple_to_list(State#state.slots_maps)],
@@ -138,15 +140,15 @@ reload_slots_map(State = #state{pool_name = PoolName}) ->
     set_state(PoolName, NewState),
     NewState.
 
-get_cluster_slots([], State, FailAcc) ->
-    case erlang:length(State#state.init_nodes) =:= FailAcc of
+get_cluster_slots([], State, ErrAcc) ->
+    case erlang:length(State#state.init_nodes) =:= erlang:length(ErrAcc) of
         true ->
-            {error, <<"ERR all nodes are down">>};
+            {error, {<<"ERR all nodes are down">>, ErrAcc}};
         false ->
             []
     end;
 
-get_cluster_slots([Node|T], State, FailAcc) ->
+get_cluster_slots([Node|T], State, ErrAcc) ->
     case safe_eredis_start_link(Node, State) of
         {ok,Connection} ->
           case eredis:q(Connection, ["CLUSTER", "SLOTS"]) of
@@ -157,12 +159,13 @@ get_cluster_slots([Node|T], State, FailAcc) ->
             {ok, ClusterInfo} ->
                 eredis:stop(Connection),
                 ClusterInfo;
-            _ ->
+            Err ->
+                logger:error("Failed to get cluster slots from redis node ~p: ~p", [Node, Err]),
                 eredis:stop(Connection),
-                get_cluster_slots(T, State, FailAcc+1)
-        end;
-        _ ->
-            get_cluster_slots(T, State, FailAcc+1)
+                get_cluster_slots(T, State, [{Node, cluster_slots_cmd, Err} | ErrAcc])
+          end;
+        Err ->
+            get_cluster_slots(T, State, [{Node, eredis_start_link, Err} | ErrAcc])
   end.
 
 -spec get_cluster_slots_from_single_node(#node{}) ->
@@ -271,7 +274,7 @@ connect_(PoolName, Opts) ->
 init([PoolName, Opts]) ->
     process_flag(trap_exit, true),
     case connect_(PoolName, Opts) of
-        #state{init_nodes = []} ->
+        #state{slots = undefined} ->
             {stop, <<"ERR unable to connect to any nodes">>};
         State ->
             true = gproc:reg({n, l, name(PoolName)}, ignored),

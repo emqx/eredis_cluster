@@ -11,6 +11,18 @@
 -export([log/2]).
 
 -define(POOL, ?MODULE).
+-define(SERVERS, "127.0.0.1:30001,127.0.0.1:30002").
+-record(state, {
+    init_nodes,
+    slots,
+    slots_maps,
+    version,
+    pool_name,
+    database,
+    username,
+    password,
+    pool_options
+}).
 
 -define(AUTH_PASS_ONLY_PASSWORD, "passw0rd").
 -define(AUTH_USER_PASS_USERNAME, "test_user").
@@ -18,20 +30,14 @@
 
 pool_opts(password_only) ->
     [
-        {servers, [
-            {"127.0.0.1", 30001},
-            {"127.0.0.1", 30002}
-        ]},
+        {servers, format_redis_servers(os:getenv("REDIS_NODE_LIST", ?SERVERS))},
         {pool_size, 5},
         {password, ?AUTH_PASS_ONLY_PASSWORD},
         {pool_type, round_robin}
     ];
 pool_opts(username_password) ->
     [
-        {servers, [
-            {"127.0.0.1", 30001},
-            {"127.0.0.1", 30002}
-        ]},
+        {servers, format_redis_servers(os:getenv("REDIS_NODE_LIST", ?SERVERS))},
         {pool_size, 5},
         {username, ?AUTH_USER_PASS_USERNAME},
         {password, ?AUTH_USER_PASS_PASSWORD},
@@ -224,6 +230,27 @@ basic_test_cases(AuthMethod) ->
         }
   ].
 
+rainy_day_test_() ->
+    {setup, fun setup_username_password/0, fun cleanup/1,
+        [
+            {"get and set after redis is recovered from node failure",
+                fun() ->
+                    meck:new(eredis, [passthrough]),
+                    ?assertEqual({ok, <<"OK">>}, eredis_cluster:q(?POOL, ["SET", "key", "value"])),
+                    ?assertEqual({ok, <<"value">>}, eredis_cluster:q(?POOL, ["GET","key"])),
+                    #state{version = Vsn1} = eredis_cluster_monitor:get_state(?POOL),
+                    meck:expect(eredis, q, fun(_, _) -> {error, no_connection} end),
+                    meck:expect(eredis, q, fun(_, _, _) -> {error, no_connection} end),
+                    ?assertEqual({error, no_connection}, eredis_cluster:q(?POOL, ["GET","key"])),
+                    meck:unload(),
+                    ?assertEqual({ok, <<"value">>}, eredis_cluster:q(?POOL, ["GET","key"])),
+                    #state{version = Vsn2, init_nodes = InitNodes} = eredis_cluster_monitor:get_state(?POOL),
+                    ?assertEqual(Vsn1, Vsn2),
+                    ?assert(length(InitNodes) > 0)
+                end}
+        ]
+    }.
+
 censor_test_() ->
     [
         {
@@ -308,3 +335,12 @@ log(#{msg := Msg}, #{relay_to := Pid}) ->
     Pid ! {log, Msg};
 log(_, _) ->
     ok.
+
+format_redis_servers(Servers) ->
+    [format_server(Server) || Server <- string:tokens(Servers, ",")].
+
+format_server(Servers) ->
+    case string:tokens(Servers, ":") of
+        [Domain] -> {Domain, 6379};
+        [Domain, Port] -> {Domain, list_to_integer(Port)}
+    end.
