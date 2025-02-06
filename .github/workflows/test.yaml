@@ -10,7 +10,6 @@ jobs:
       fail-fast: false
       matrix:
         otp:
-          - 24.3
           - 25.1
     steps:
       - uses: actions/checkout@v3
@@ -24,7 +23,7 @@ jobs:
         run: rebar3 eunit -v -c
       - name: cover report
         run: rebar3 cover -v
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: cover
           path: _build/test/cover
