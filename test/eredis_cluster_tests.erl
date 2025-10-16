@@ -263,9 +263,11 @@ rainy_day_test_() ->
                     AllPools = eredis_cluster_monitor:get_all_pools(?POOL),
                     FirstPool = hd(AllPools),
 
-                    % Mock pool transaction to return no_connection for some pools
+                    % Track pool transaction calls to verify retry
+                    TransactionCallCount = erlang:make_ref(),
                     meck:expect(eredis_cluster_pool, transaction,
                         fun(Pool, _Transaction) ->
+                            Tester ! {transaction_called, TransactionCallCount, Pool},
                             % Return no_connection for some pools to trigger refresh
                             case Pool of
                                 Pool1 when Pool1 =:= FirstPool ->
@@ -286,13 +288,22 @@ rainy_day_test_() ->
                     % Call qa with PING command
                     Results = eredis_cluster:qa(?POOL, [<<"PING">>]),
 
-                    % Verify that refresh_mapping was called
-                    receive
-                        {refresh_called, RefreshCalled, ?POOL, InitialVersion} ->
-                            ok
-                    after 1000 ->
-                        ?assert(false, "refresh_mapping was not called")
-                    end,
+                    % Collect all transaction calls
+                    TransactionCalls = collect_transaction_calls(TransactionCallCount, 0),
+
+                    % Collect all refresh calls and verify versions are incrementing
+                    RefreshCalls = collect_refresh_calls(RefreshCalled, []),
+
+                    % Verify that refresh_mapping was called multiple times
+                    ?assert(length(RefreshCalls) > 1, "refresh_mapping should be called multiple times for PING retry"),
+
+                    % Verify versions are incrementing
+                    Versions = [Version || {_, _, _, Version} <- RefreshCalls],
+                    ?assert(lists:all(fun(V) -> V >= InitialVersion end, Versions), "All versions should be >= initial version"),
+                    ?assert(lists:sort(Versions) =:= Versions, "Versions should be in ascending order"),
+
+                    % Verify transaction was called multiple times (retry happened)
+                    ?assert(TransactionCalls > 1, "transaction should be called multiple times due to retry"),
 
                     % Verify results contain both success and error cases
                     ?assert(lists:any(fun(R) -> R =:= {ok, <<"PONG">>} end, Results)),
@@ -303,6 +314,7 @@ rainy_day_test_() ->
             {"qa non-PING command with no_connection triggers slot refresh but no retry",
                 fun() ->
                     Tester = self(),
+                    meck:unload(),
                     meck:new(eredis, [passthrough]),
                     meck:new(eredis_cluster_pool, [passthrough]),
                     meck:new(eredis_cluster_monitor, [passthrough]),
@@ -439,6 +451,22 @@ log(#{msg := Msg}, #{relay_to := Pid}) ->
     Pid ! {log, Msg};
 log(_, _) ->
     ok.
+
+collect_transaction_calls(Ref, Count) ->
+    receive
+        {transaction_called, Ref, _Pool} ->
+            collect_transaction_calls(Ref, Count + 1)
+    after 0 ->
+        Count
+    end.
+
+collect_refresh_calls(Ref, Acc) ->
+    receive
+        {refresh_called, Ref, PoolName, Version} ->
+            collect_refresh_calls(Ref, [{refresh_called, Ref, PoolName, Version} | Acc])
+    after 0 ->
+        lists:reverse(Acc)
+    end.
 
 format_redis_servers(Servers) ->
     [format_server(Server) || Server <- string:tokens(Servers, ",")].
