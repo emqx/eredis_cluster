@@ -247,6 +247,110 @@ rainy_day_test_() ->
                     #state{version = Vsn2, init_nodes = InitNodes} = eredis_cluster_monitor:get_state(?POOL),
                     ?assertEqual(Vsn1, Vsn2),
                     ?assert(length(InitNodes) > 0)
+                end},
+            {"qa PING command with no_connection triggers slot refresh and retry",
+                fun() ->
+                    Tester = self(),
+                    meck:new(eredis, [passthrough]),
+                    meck:new(eredis_cluster_pool, [passthrough]),
+                    meck:new(eredis_cluster_monitor, [passthrough]),
+
+                    % Get initial state version
+                    InitialState = eredis_cluster_monitor:get_state(?POOL),
+                    InitialVersion = eredis_cluster_monitor:get_state_version(InitialState),
+
+                    % Get all pools for comparison
+                    AllPools = eredis_cluster_monitor:get_all_pools(?POOL),
+                    FirstPool = hd(AllPools),
+
+                    % Mock pool transaction to return no_connection for some pools
+                    meck:expect(eredis_cluster_pool, transaction,
+                        fun(Pool, _Transaction) ->
+                            % Return no_connection for some pools to trigger refresh
+                            case Pool of
+                                Pool1 when Pool1 =:= FirstPool ->
+                                    {error, no_connection};
+                                _ ->
+                                    {ok, <<"PONG">>}
+                            end
+                        end),
+
+                    % Mock refresh_mapping to track calls
+                    RefreshCalled = erlang:make_ref(),
+                    meck:expect(eredis_cluster_monitor, refresh_mapping,
+                        fun(PoolName, Version) ->
+                            Tester ! {refresh_called, RefreshCalled, PoolName, Version},
+                            ok
+                        end),
+
+                    % Call qa with PING command
+                    Results = eredis_cluster:qa(?POOL, [<<"PING">>]),
+
+                    % Verify that refresh_mapping was called
+                    receive
+                        {refresh_called, RefreshCalled, ?POOL, InitialVersion} ->
+                            ok
+                    after 1000 ->
+                        ?assert(false, "refresh_mapping was not called")
+                    end,
+
+                    % Verify results contain both success and error cases
+                    ?assert(lists:any(fun(R) -> R =:= {ok, <<"PONG">>} end, Results)),
+                    ?assert(lists:any(fun(R) -> R =:= {error, no_connection} end, Results)),
+
+                    meck:unload()
+                end},
+            {"qa non-PING command with no_connection triggers slot refresh but no retry",
+                fun() ->
+                    Tester = self(),
+                    meck:new(eredis, [passthrough]),
+                    meck:new(eredis_cluster_pool, [passthrough]),
+                    meck:new(eredis_cluster_monitor, [passthrough]),
+
+                    % Get initial state version
+                    InitialState = eredis_cluster_monitor:get_state(?POOL),
+                    InitialVersion = eredis_cluster_monitor:get_state_version(InitialState),
+
+                    % Get all pools for comparison
+                    AllPools = eredis_cluster_monitor:get_all_pools(?POOL),
+                    FirstPool = hd(AllPools),
+
+                    % Mock pool transaction to return no_connection for some pools
+                    meck:expect(eredis_cluster_pool, transaction,
+                        fun(Pool, _Transaction) ->
+                            % Return no_connection for some pools to trigger refresh
+                            case Pool of
+                                Pool1 when Pool1 =:= FirstPool ->
+                                    {error, no_connection};
+                                _ ->
+                                    {ok, <<"OK">>}
+                            end
+                        end),
+
+                    % Mock refresh_mapping to track calls
+                    RefreshCalled = erlang:make_ref(),
+                    meck:expect(eredis_cluster_monitor, refresh_mapping,
+                        fun(PoolName, Version) ->
+                            Tester ! {refresh_called, RefreshCalled, PoolName, Version},
+                            ok
+                        end),
+
+                    % Call qa with non-PING command (SET)
+                    Results = eredis_cluster:qa(?POOL, [<<"SET">>, <<"test_key">>, <<"test_value">>]),
+
+                    % Verify that refresh_mapping was called
+                    receive
+                        {refresh_called, RefreshCalled, ?POOL, InitialVersion} ->
+                            ok
+                    after 1000 ->
+                        ?assert(false, "refresh_mapping was not called")
+                    end,
+
+                    % Verify results contain both success and error cases
+                    ?assert(lists:any(fun(R) -> R =:= {ok, <<"OK">>} end, Results)),
+                    ?assert(lists:any(fun(R) -> R =:= {error, no_connection} end, Results)),
+
+                    meck:unload()
                 end}
         ]
     }.
