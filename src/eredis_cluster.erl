@@ -267,9 +267,28 @@ eval(Pool, Script, ScriptHash, Keys, Args) ->
 %% @end
 %% =============================================================================
 qa(PoolName, Command) ->
+    qa(PoolName, Command, 0).
+
+qa(PoolName, Command, N) ->
     Pools = eredis_cluster_monitor:get_all_pools(PoolName),
     Transaction = fun(Worker) -> qw(Worker, Command) end,
-    [eredis_cluster_pool:transaction(Pool, Transaction) || Pool <- Pools].
+    Results = [eredis_cluster_pool:transaction(Pool, Transaction) || Pool <- Pools],
+    case lists:member({error, no_connection}, Results) of
+        true ->
+            %% Trigger slot refresh
+            State = eredis_cluster_monitor:get_state(PoolName),
+            Version = eredis_cluster_monitor:get_state_version(State),
+            eredis_cluster_monitor:refresh_mapping(PoolName, Version),
+            case Command =:= [<<"PING">>] andalso N < ?REDIS_CLUSTER_REQUEST_TTL of
+                true ->
+                    %% retry if it's PING command
+                    qa(PoolName, Command, N + 1);
+                false ->
+                    Results
+            end;
+        false ->
+            Results
+    end.
 
 %% =============================================================================
 %% @doc Wrapper function to be used for direct call to a pool worker in the

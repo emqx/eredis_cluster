@@ -315,7 +315,15 @@ format_status(_Opt, [_PDict, State]) ->
 -endif.
 
 censor_state(#state{} = State) ->
-    State#state{password = "******"};
+    State#state{
+        password = "******",
+        slots = case State#state.slots of
+            undefined -> undefined;
+            Slots when is_tuple(Slots) ->
+                {slots_tuple, size(Slots), "..."};
+            Other -> Other
+        end
+    };
 censor_state(State) ->
     State.
 
