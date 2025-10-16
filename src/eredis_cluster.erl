@@ -273,7 +273,7 @@ qa(PoolName, Command, N) ->
     Pools = eredis_cluster_monitor:get_all_pools(PoolName),
     Transaction = fun(Worker) -> qw(Worker, Command) end,
     Results = [eredis_cluster_pool:transaction(Pool, Transaction) || Pool <- Pools],
-    case lists:any(fun(R) -> R =:= {error, no_connection} end, Results) of
+    case lists:member({error, no_connection}, Results) of
         true ->
             %% Trigger slot refresh
             State = eredis_cluster_monitor:get_state(PoolName),
