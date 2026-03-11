@@ -18,7 +18,7 @@
 
 -record(state, {conn, host, port, database, password}).
 
--define(RECONNECT_TIME, 2000).
+-define(RECONNECT_MAX, 4096000). %% 4096s ≈ 1.13 hours
 
 is_connected(Pid) ->
     gen_server:call(Pid, is_connected).
@@ -68,16 +68,40 @@ handle_info(reconnect, #state{conn = undefined,
         undefined -> [];
         Options0 -> Options0
     end,
-    Conn = start_connection(Hostname, Port, DataBase, Password, Options),
-    {noreply, State#state{conn = Conn}};
+    Attempts = get_reconnect_attempts(),
+    case start_connection(Hostname, Port, DataBase, Password, Options) of
+        undefined ->
+            %% Connection failed (e.g. SSL handshake error during cert rotation).
+            %% Use exponential backoff to avoid flooding the server with zombie
+            %% TCP connections that accumulate behind NLB/proxy layers.
+            Delay = backoff_delay(Attempts),
+            erlang:send_after(Delay, self(), reconnect),
+            put_reconnect_attempts(Attempts + 1),
+            {noreply, State};
+        Conn ->
+            put_reconnect_attempts(0),
+            {noreply, State#state{conn = Conn}}
+    end;
 
 handle_info(reconnect, State) ->
     {noreply, State};
 
 handle_info({'EXIT', Pid, _Reason}, #state{conn = Pid0} = State)
         when Pid0 =:= Pid; Pid0 =:= undefined ->
-    erlang:send_after(?RECONNECT_TIME, self(), reconnect),
-    {noreply, State#state{conn = undefined}};
+    case Pid0 of
+        undefined ->
+            %% EXIT from a failed start_connection attempt (gen_server:start_link
+            %% links before init runs). A reconnect is already scheduled with
+            %% backoff by the reconnect handler — do NOT schedule another one
+            %% to avoid bypassing the backoff delay.
+            {noreply, State};
+        _ ->
+            %% EXIT from an established connection that went down.
+            %% Reset backoff and schedule immediate reconnect.
+            erlang:send_after(backoff_delay(0), self(), reconnect),
+            put_reconnect_attempts(0),
+            {noreply, State#state{conn = undefined}}
+    end;
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -121,3 +145,19 @@ start_connection(Hostname, Port, DataBase, Password, Options) ->
         _ ->
             undefined
     end.
+
+%% Exponential backoff with each interval used twice (except the first):
+%%   2s, 4s, 4s, 8s, 8s, 16s, 16s, 32s, 32s, ... up to ?RECONNECT_MAX (default 4096s).
+%% Formula: min(2^((N+1) div 2 + 1), MAX) seconds, where N = Attempts (0-based).
+backoff_delay(N) ->
+    Exp = (N + 1) div 2 + 1,
+    min((1 bsl Exp) * 1000, ?RECONNECT_MAX).
+
+get_reconnect_attempts() ->
+    case erlang:get(reconnect_attempts) of
+        undefined -> 0;
+        N -> N
+    end.
+
+put_reconnect_attempts(N) ->
+    erlang:put(reconnect_attempts, N).
