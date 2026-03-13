@@ -20,6 +20,10 @@
 
 -define(RECONNECT_MAX, 4096000). %% 4096s ≈ 1.13 hours
 
+-ifdef(TEST).
+-export([backoff_delay/1]).
+-endif.
+
 is_connected(Pid) ->
     gen_server:call(Pid, is_connected).
 
