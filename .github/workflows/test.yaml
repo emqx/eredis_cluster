@@ -11,12 +11,14 @@ jobs:
       matrix:
         otp:
           - 25.1
+        rebar3:
+          - 3.23.0
     steps:
       - uses: actions/checkout@v3
       - uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ matrix.otp }}
-          rebar3-version: 3
+          rebar3-version: ${{ matrix.rebar3 }}
       - name: setup redis cluster
         run: docker compose up -d --wait
       - name: eunit
