@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   redis-node-0: &redis-node
-    image: docker.io/bitnami/redis-cluster:${REDIS_TAG}
+    image: ${REDIS_IMAGE}:${REDIS_TAG}
     ports:
       - "30001:${REDIS_PORT_NUMBER}"
     environment:
@@ -30,7 +30,7 @@ services:
       - "30005:${REDIS_PORT_NUMBER}"
 
   redis-node-5:
-    image: docker.io/bitnami/redis-cluster:${REDIS_TAG}
+    image: ${REDIS_IMAGE}:${REDIS_TAG}
     depends_on:
       - redis-node-0
       - redis-node-1
