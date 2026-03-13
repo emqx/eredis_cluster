@@ -24,15 +24,15 @@ jobs:
           docker compose up -d
           echo "Waiting for cluster init..."
           for i in $(seq 1 60); do
-            if docker compose exec -T redis-node-0 redis-cli -a passw0rd cluster info 2>/dev/null | grep -q 'cluster_state:ok'; then
+            if docker compose exec -T redis-node-0 redis-cli -p 30001 -a passw0rd cluster info 2>/dev/null | grep -q 'cluster_state:ok'; then
               echo "Cluster is ready"
               break
             fi
             echo "Waiting... ($i/60)"
             sleep 2
           done
-          docker compose exec -T redis-node-0 redis-cli -a passw0rd cluster info
-          docker compose exec -T redis-node-0 redis-cli -a passw0rd cluster nodes
+          docker compose exec -T redis-node-0 redis-cli -p 30001 -a passw0rd cluster info
+          docker compose exec -T redis-node-0 redis-cli -p 30001 -a passw0rd cluster nodes
       - name: eunit
         run: rebar3 eunit -v -c
       - name: cover report
