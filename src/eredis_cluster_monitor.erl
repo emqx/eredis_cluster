@@ -141,8 +141,10 @@ get_cluster_slots([Node|T], State, ErrAcc) ->
         {ok,Connection} ->
           case eredis:q(Connection, ["CLUSTER", "SLOTS"]) of
             {error,<<"ERR unknown command 'CLUSTER'">>} ->
+                eredis:stop(Connection),
                 get_cluster_slots_from_single_node(Node);
             {error,<<"ERR This instance has cluster support disabled">>} ->
+                eredis:stop(Connection),
                 get_cluster_slots_from_single_node(Node);
             {ok, ClusterInfo} ->
                 eredis:stop(Connection),

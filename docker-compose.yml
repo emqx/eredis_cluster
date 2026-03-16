@@ -1,60 +1,131 @@
-version: '3.9'
-
 services:
-  redis-node-0: &redis-node
-    image: docker.io/bitnami/redis-cluster:${REDIS_TAG}
-    ports:
-      - "30001:${REDIS_PORT_NUMBER}"
-    environment:
-      - 'REDIS_PASSWORD=${REDIS_PASSWORD}'
-      - 'REDIS_NODES=redis-node-0 redis-node-1 redis-node-2 redis-node-3 redis-node-4 redis-node-5'
+  redis-node-0:
+    image: redis:6.2
+    network_mode: host
+    command: >-
+      redis-server
+      --port 30001
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --requirepass passw0rd
+      --masterauth passw0rd
+      --appendonly yes
+      --dir /data
+    volumes:
+      - redis-data-0:/data
 
   redis-node-1:
-    <<: *redis-node
-    ports:
-      - "30002:${REDIS_PORT_NUMBER}"
+    image: redis:6.2
+    network_mode: host
+    command: >-
+      redis-server
+      --port 30002
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --requirepass passw0rd
+      --masterauth passw0rd
+      --appendonly yes
+      --dir /data
+    volumes:
+      - redis-data-1:/data
 
   redis-node-2:
-    <<: *redis-node
-    ports:
-      - "30003:${REDIS_PORT_NUMBER}"
+    image: redis:6.2
+    network_mode: host
+    command: >-
+      redis-server
+      --port 30003
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --requirepass passw0rd
+      --masterauth passw0rd
+      --appendonly yes
+      --dir /data
+    volumes:
+      - redis-data-2:/data
 
   redis-node-3:
-    <<: *redis-node
-    ports:
-      - "30004:${REDIS_PORT_NUMBER}"
+    image: redis:6.2
+    network_mode: host
+    command: >-
+      redis-server
+      --port 30004
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --requirepass passw0rd
+      --masterauth passw0rd
+      --appendonly yes
+      --dir /data
+    volumes:
+      - redis-data-3:/data
 
   redis-node-4:
-    <<: *redis-node
-    ports:
-      - "30005:${REDIS_PORT_NUMBER}"
+    image: redis:6.2
+    network_mode: host
+    command: >-
+      redis-server
+      --port 30005
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --requirepass passw0rd
+      --masterauth passw0rd
+      --appendonly yes
+      --dir /data
+    volumes:
+      - redis-data-4:/data
 
   redis-node-5:
-    image: docker.io/bitnami/redis-cluster:${REDIS_TAG}
+    image: redis:6.2
+    network_mode: host
+    command: >-
+      redis-server
+      --port 30006
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --requirepass passw0rd
+      --masterauth passw0rd
+      --appendonly yes
+      --dir /data
+    volumes:
+      - redis-data-5:/data
+
+  cluster-init:
+    image: redis:6.2
+    network_mode: host
     depends_on:
       - redis-node-0
       - redis-node-1
       - redis-node-2
       - redis-node-3
       - redis-node-4
-    environment:
-      - 'REDIS_PASSWORD=${REDIS_PASSWORD}'
-      - 'REDISCLI_AUTH=${REDIS_PASSWORD}'
-      - 'REDIS_CLUSTER_REPLICAS=1'
-      - 'REDIS_NODES=redis-node-0 redis-node-1 redis-node-2 redis-node-3 redis-node-4 redis-node-5'
-      - 'REDIS_CLUSTER_CREATOR=yes'
-    ports:
-      - "30006:${REDIS_PORT_NUMBER}"
-    healthcheck:
-      test: |
-        # Convert `cluster info` output into shell variable assignments 
-        eval "$(
-          redis-cli -a "${REDIS_PASSWORD}" --no-auth-warning cluster info | \
-            grep "^cluster" | \
-            sed -r 's/(\w+):(\w+).*/\1=\2/'
-        )"
-        [ "$$cluster_state" = "ok" ]      || { echo "cluster state = $$cluster_state"; exit 1; }
-        [ "$$cluster_size" -gt 1 ]        || { echo "cluster size = $$cluster_size"; exit 2; }
-        [ "$$cluster_known_nodes" -eq 6 ] || { echo "known nodes = $$cluster_known_nodes"; exit 3; }
-      interval: 5s
-      retries: 3
+      - redis-node-5
+    restart: "no"
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        echo 'Waiting for redis nodes...'
+        for port in 30001 30002 30003 30004 30005 30006; do
+          until redis-cli -p $$port -a passw0rd ping 2>/dev/null | grep -q PONG; do
+            sleep 1
+          done
+          echo "127.0.0.1:$$port ready"
+        done
+        echo 'Creating cluster...'
+        echo yes | redis-cli -a passw0rd --cluster create 127.0.0.1:30001 127.0.0.1:30002 127.0.0.1:30003 127.0.0.1:30004 127.0.0.1:30005 127.0.0.1:30006 --cluster-replicas 1
+        echo 'Verifying...'
+        redis-cli -p 30001 -a passw0rd cluster info
+        redis-cli -p 30001 -a passw0rd cluster nodes
+
+volumes:
+  redis-data-0:
+  redis-data-1:
+  redis-data-2:
+  redis-data-3:
+  redis-data-4:
+  redis-data-5:
