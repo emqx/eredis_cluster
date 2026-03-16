@@ -102,6 +102,7 @@
       {load_module, eredis_cluster_pool_worker, brutal_purge, soft_purge, []}
     ]},
     {<<"0\\.7\\.[5-6]">>, [
+      {load_module, eredis_cluster_pool_worker, brutal_purge, soft_purge, []},
       {load_module, eredis_cluster_monitor, brutal_purge, soft_purge, []}
     ]},
     {"0.7.7", [
