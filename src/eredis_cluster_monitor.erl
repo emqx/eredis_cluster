@@ -139,19 +139,19 @@ get_cluster_slots([], State, ErrAcc) ->
 get_cluster_slots([Node|T], State, ErrAcc) ->
     case safe_eredis_start_link(Node, State) of
         {ok,Connection} ->
-          case eredis:q(Connection, ["CLUSTER", "SLOTS"]) of
+          case safe_get_cluster_slots(Connection) of
             {error,<<"ERR unknown command 'CLUSTER'">>} ->
-                eredis:stop(Connection),
+                safe_eredis_stop(Connection),
                 get_cluster_slots_from_single_node(Node);
             {error,<<"ERR This instance has cluster support disabled">>} ->
-                eredis:stop(Connection),
+                safe_eredis_stop(Connection),
                 get_cluster_slots_from_single_node(Node);
             {ok, ClusterInfo} ->
-                eredis:stop(Connection),
+                safe_eredis_stop(Connection),
                 ClusterInfo;
             Err ->
                 logger:error("Failed to get cluster slots from redis node ~p: ~p", [Node, Err]),
-                eredis:stop(Connection),
+                safe_eredis_stop(Connection),
                 get_cluster_slots(T, State, [{Node, cluster_slots_cmd, Err} | ErrAcc])
           end;
         Err ->
@@ -223,6 +223,19 @@ safe_eredis_start_link(#node{address = Host, port = Port},
         Options0 -> Options0
     end,
     eredis:start_link(Host, Port, DataBase, Password, no_reconnect, 5000, Options).
+
+safe_get_cluster_slots(Connection) ->
+    try eredis:q(Connection, ["CLUSTER", "SLOTS"])
+    catch
+        exit:Reason ->
+            {error, {cluster_slots_exit, Reason}}
+    end.
+
+safe_eredis_stop(Connection) ->
+    try eredis:stop(Connection)
+    catch
+        _:_ -> ok
+    end.
 
 -spec create_slots_cache([#slots_map{}]) -> [integer()].
 create_slots_cache(SlotsMaps) ->
