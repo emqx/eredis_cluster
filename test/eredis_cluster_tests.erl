@@ -11,6 +11,7 @@
 -export([log/2]).
 
 -define(POOL, ?MODULE).
+-define(MONITOR_TIMEOUT_POOL, monitor_timeout_pool).
 -define(SERVERS, "127.0.0.1:30001,127.0.0.1:30002").
 -define(POOL_OPTS, [
     {servers, format_redis_servers(os:getenv("REDIS_NODE_LIST", ?SERVERS))},
@@ -198,6 +199,45 @@ rainy_day_test_() ->
                     ?assert(length(InitNodes) > 0)
                 end}
         ]
+    }.
+
+monitor_reload_slots_timeout_test_() ->
+    {"monitor survives CLUSTER SLOTS timeout",
+        {timeout, 10, fun() ->
+            meck:new(eredis, [non_strict]),
+            meck:new(eredis_cluster_pool, [non_strict]),
+            try
+                meck:expect(eredis, start_link, fun(_, _, _, _, _, _, _) -> {ok, conn} end),
+                meck:expect(eredis, q, fun(conn, ["CLUSTER", "SLOTS"]) ->
+                    {ok, [[<<"0">>, <<"16383">>, [<<"127.0.0.1">>, <<"6379">>]]]}
+                end),
+                meck:expect(eredis, stop, fun(conn) -> ok end),
+                meck:expect(eredis_cluster_pool, create, fun(_, _, _, _, _, _, _) -> {ok, fake_pool} end),
+                meck:expect(eredis_cluster_pool, stop, fun(_) -> ok end),
+
+                {ok, MonPid} = eredis_cluster_monitor:start_link(?MONITOR_TIMEOUT_POOL, [
+                    {servers, [{"127.0.0.1", 6379}]}
+                ]),
+                ?assert(is_process_alive(MonPid)),
+
+                Version = eredis_cluster_monitor:get_state_version(
+                    eredis_cluster_monitor:get_state(?MONITOR_TIMEOUT_POOL)
+                ),
+
+                meck:expect(eredis, q, fun(conn, ["CLUSTER", "SLOTS"]) ->
+                    exit(timeout);
+                (_, _) ->
+                    {error, no_connection}
+                end),
+
+                Result = catch eredis_cluster_monitor:refresh_mapping(?MONITOR_TIMEOUT_POOL, Version),
+                ?assertNotMatch({'EXIT', _}, Result),
+                ?assert(is_process_alive(MonPid))
+            after
+                catch meck:unload(eredis),
+                catch meck:unload(eredis_cluster_pool)
+            end
+        end}
     }.
 
 censor_test_() ->
