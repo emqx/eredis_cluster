@@ -232,7 +232,8 @@ monitor_reload_slots_timeout_test_() ->
 
                 Result = catch eredis_cluster_monitor:refresh_mapping(?MONITOR_TIMEOUT_POOL, Version),
                 ?assertNotMatch({'EXIT', _}, Result),
-                ?assert(is_process_alive(MonPid))
+                ?assert(is_process_alive(MonPid)),
+                ok = gen_server:stop(MonPid, normal, 5000)
             after
                 catch meck:unload(eredis),
                 catch meck:unload(eredis_cluster_pool)
