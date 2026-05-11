@@ -1,6 +1,6 @@
 services:
   redis-node-0: &redis-node
-    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
+    image: ${REDIS_IMAGE:-public.ecr.aws/docker/library/redis}:${REDIS_TAG}
     command: redis-server /usr/local/etc/redis/redis.conf --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes --requirepass ${REDIS_PASSWORD} --masterauth ${REDIS_PASSWORD} --port ${REDIS_PORT_NUMBER} --bind 0.0.0.0
     volumes:
       - ./test/config/users.acl:/usr/local/etc/redis/users.acl
@@ -46,7 +46,7 @@ services:
         ipv4_address: 10.5.0.15
 
   redis-node-5:
-    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
+    image: ${REDIS_IMAGE:-public.ecr.aws/docker/library/redis}:${REDIS_TAG}
     command: redis-server /usr/local/etc/redis/redis.conf --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes --requirepass ${REDIS_PASSWORD} --masterauth ${REDIS_PASSWORD} --port ${REDIS_PORT_NUMBER} --bind 0.0.0.0
     depends_on:
       - redis-node-0
@@ -70,7 +70,7 @@ services:
       retries: 3
 
   redis-cluster-init:
-    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
+    image: ${REDIS_IMAGE:-public.ecr.aws/docker/library/redis}:${REDIS_TAG}
     depends_on:
       - redis-node-0
       - redis-node-1
