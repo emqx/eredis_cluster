@@ -25,7 +25,13 @@ jobs:
       - name: pull redis image
         run: |
           source .env
-          docker pull public.ecr.aws/docker/library/redis:${REDIS_TAG}
+          if docker pull public.ecr.aws/docker/library/redis:${REDIS_TAG}; then
+            docker tag public.ecr.aws/docker/library/redis:${REDIS_TAG} eredis-cluster-redis:${REDIS_TAG}
+          else
+            docker pull redis:${REDIS_TAG}
+            docker tag redis:${REDIS_TAG} eredis-cluster-redis:${REDIS_TAG}
+          fi
+          echo "REDIS_IMAGE=eredis-cluster-redis" >> "$GITHUB_ENV"
       - name: setup redis cluster
         run: docker compose up -d --wait
       - name: eunit
